@@ -61,7 +61,7 @@ export async function updateCatalogPages(id: string, pages: CatalogPage[]) {
     const path = `${u.user.id}/${id}/${p.id}.jpg`;
     if (p.image.startsWith("data:")) {
       const blob = await (await fetch(p.image)).blob();
-      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg" });
       if (error) throw error;
     }
     stored.push({ id: p.id, path, width: p.width, height: p.height });
