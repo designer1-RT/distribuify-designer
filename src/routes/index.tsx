@@ -28,6 +28,18 @@ function App() {
   const [view, setView] = useState<View>("dashboard");
   const [pages, setPages] = useState<CatalogPage[]>([]);
   const [name, setName] = useState("catalogo");
+  const [catalogId, setCatalogId] = useState<string | null>(null);
+
+  async function share() {
+    if (!email) { toast("Entre na sua conta para gerar o link"); return; }
+    if (!catalogId) { toast("Aguarde o catálogo ser salvo na nuvem"); return; }
+    try {
+      await shareCatalog(catalogId);
+      const url = `${window.location.origin}/c/${catalogId}`;
+      await navigator.clipboard.writeText(url).catch(() => {});
+      toast.success("Link copiado! Envie para seus clientes.", { description: url });
+    } catch { toast.error("Não foi possível gerar o link"); }
+  }
   const [zoom, setZoom] = useState(1);
   const [current, setCurrent] = useState(1);
   const [loading, setLoading] = useState<string | null>(null);
@@ -57,10 +69,10 @@ function App() {
     try {
       const p = await pdfToPages(f, (n, t) => setLoading(`Preparando página ${n} de ${t}…`));
       const nm = f.name.replace(/\.pdf$/i, "");
-      setPages(p); setName(nm); setCurrent(1); setView("editor");
+      setPages(p); setName(nm); setCatalogId(null); setCurrent(1); setView("editor");
       toast.success(`${p.length} páginas carregadas`);
       if (email) {
-        await saveCatalog(nm, p, (n, t) => setLoading(`Salvando na nuvem ${n} de ${t}…`));
+        setCatalogId(await saveCatalog(nm, p, (n, t) => setLoading(`Salvando na nuvem ${n} de ${t}…`)));
         toast.success("Catálogo salvo na nuvem");
         setSaved(await listCatalogs());
       } else toast("Entre na sua conta para salvar o catálogo na nuvem");
@@ -72,7 +84,7 @@ function App() {
     setLoading("Abrindo catálogo…");
     try {
       const c = await loadCatalog(id);
-      setPages(c.pages); setName(c.name); setCurrent(1); setView("editor");
+      setPages(c.pages); setName(c.name); setCatalogId(id); setCurrent(1); setView("editor");
     } catch { toast.error("Não foi possível abrir"); }
     setLoading(null);
   }
@@ -86,7 +98,7 @@ function App() {
   async function onLogin() {
     if (!email) return navigate({ to: "/auth" });
     await supabase.auth.signOut();
-    setPages([]); setView("dashboard");
+    setPages([]); setCatalogId(null); setView("dashboard");
     toast("Você saiu da conta");
   }
 
@@ -214,7 +226,7 @@ function App() {
               <button className={railBtn} title="Afastar" onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}><ZoomOut className="h-5 w-5" /></button>
             </div>
             <div className="my-1 h-px w-8 bg-border" />
-            <button data-tour="tool-share" className={railBtn} title="Enviar link" onClick={() => toast("Link compartilhável chega com o login/armazenamento")}><Link2 className="h-5 w-5" /></button>
+            <button data-tour="tool-share" className={railBtn} title="Enviar link" onClick={share}><Link2 className="h-5 w-5" /></button>
             <button data-tour="tool-export" className={railBtn} title="Exportar PDF" onClick={() => exportPdf(pages, name)}><FileDown className="h-5 w-5" /></button>
           </div>
         )}
