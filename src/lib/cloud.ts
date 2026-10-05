@@ -47,3 +47,8 @@ export async function deleteCatalog(id: string) {
   const { error } = await supabase.from("catalogs").delete().eq("id", id);
   if (error) throw error;
 }
+
+export async function shareCatalog(id: string) {
+  const { error } = await supabase.from("catalogs").update({ shared: true }).eq("id", id);
+  if (error) throw error;
+}
