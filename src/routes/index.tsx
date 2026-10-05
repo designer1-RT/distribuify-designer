@@ -1,9 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown } from "lucide-react";
+import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
 import { exportPdf, pdfToPages, type CatalogPage } from "@/lib/pdf";
+import { supabase } from "@/integrations/supabase/client";
+import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog } from "@/lib/cloud";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -18,8 +20,10 @@ export const Route = createFileRoute("/")({
 });
 
 type View = "dashboard" | "editor" | "pages";
+type Saved = { id: string; name: string; count: number; updated_at: string };
 
 function App() {
+  const navigate = useNavigate();
   const [dark, setDark] = useState(true);
   const [view, setView] = useState<View>("dashboard");
   const [pages, setPages] = useState<CatalogPage[]>([]);
@@ -28,11 +32,22 @@ function App() {
   const [current, setCurrent] = useState(1);
   const [loading, setLoading] = useState<string | null>(null);
   const [tour, setTour] = useState(false);
+  const [email, setEmail] = useState<string | null>(null);
+  const [saved, setSaved] = useState<Saved[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => { if (!localStorage.getItem("tour-done")) setTour(true); }, []);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (email) listCatalogs().then(setSaved).catch(() => toast.error("Erro ao carregar catálogos"));
+    else setSaved([]);
+  }, [email]);
 
   const closeTour = () => { setTour(false); localStorage.setItem("tour-done", "1"); };
 
@@ -41,10 +56,38 @@ function App() {
     setLoading("Lendo PDF…");
     try {
       const p = await pdfToPages(f, (n, t) => setLoading(`Preparando página ${n} de ${t}…`));
-      setPages(p); setName(f.name.replace(/\.pdf$/i, "")); setCurrent(1); setView("editor");
+      const nm = f.name.replace(/\.pdf$/i, "");
+      setPages(p); setName(nm); setCurrent(1); setView("editor");
       toast.success(`${p.length} páginas carregadas`);
-    } catch { toast.error("Não foi possível ler este PDF"); }
+      if (email) {
+        await saveCatalog(nm, p, (n, t) => setLoading(`Salvando na nuvem ${n} de ${t}…`));
+        toast.success("Catálogo salvo na nuvem");
+        setSaved(await listCatalogs());
+      } else toast("Entre na sua conta para salvar o catálogo na nuvem");
+    } catch { toast.error("Não foi possível ler ou salvar este PDF"); }
     setLoading(null);
+  }
+
+  async function openSaved(id: string) {
+    setLoading("Abrindo catálogo…");
+    try {
+      const c = await loadCatalog(id);
+      setPages(c.pages); setName(c.name); setCurrent(1); setView("editor");
+    } catch { toast.error("Não foi possível abrir"); }
+    setLoading(null);
+  }
+
+  async function removeSaved(id: string) {
+    if (!confirm("Excluir este catálogo?")) return;
+    await deleteCatalog(id).catch(() => toast.error("Erro ao excluir"));
+    setSaved(await listCatalogs());
+  }
+
+  async function onLogin() {
+    if (!email) return navigate({ to: "/auth" });
+    await supabase.auth.signOut();
+    setPages([]); setView("dashboard");
+    toast("Você saiu da conta");
   }
 
   function onScroll() {
@@ -84,7 +127,9 @@ function App() {
         <button data-tour="nav-theme" title="Modo claro/escuro" onClick={() => setDark(!dark)} className={railBtn}>
           {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
-        <button data-tour="nav-login" title="Entrar / Sair" onClick={() => toast("Login chega na próxima etapa")} className={railBtn}><LogIn className="h-5 w-5" /></button>
+        <button data-tour="nav-login" title={email ? `Sair (${email})` : "Entrar"} onClick={onLogin} className={railBtn}>
+          {email ? <LogOut className="h-5 w-5" /> : <LogIn className="h-5 w-5" />}
+        </button>
         <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-lg font-extrabold text-primary-foreground">P</div>
       </aside>
 
@@ -109,6 +154,28 @@ function App() {
                   {pages.length > 0 && <button onClick={() => setView("editor")} className="mt-4 rounded-full bg-primary-foreground/20 px-5 py-2 text-sm font-bold">Abrir catálogo</button>}
                 </div>
               </div>
+            </section>
+            <section className="mx-auto mt-8 max-w-4xl">
+              <h2 className="text-lg font-bold">Meus catálogos na nuvem</h2>
+              {!email ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  <button onClick={() => navigate({ to: "/auth" })} className="font-semibold text-primary hover:underline">Entre na sua conta</button> para salvar e ver seus catálogos.
+                </p>
+              ) : saved.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Nenhum catálogo salvo ainda. Envie um PDF acima.</p>
+              ) : (
+                <ul className="mt-3 divide-y rounded-xl border">
+                  {saved.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between p-4">
+                      <button onClick={() => openSaved(c.id)} className="text-left">
+                        <p className="font-semibold">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.count} páginas · {new Date(c.updated_at).toLocaleDateString("pt-BR")}</p>
+                      </button>
+                      <button title="Excluir" onClick={() => removeSaved(c.id)} className={railBtn}><Trash2 className="h-4 w-4" /></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           </div>
         ) : view === "pages" ? (

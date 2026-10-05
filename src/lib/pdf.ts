@@ -23,9 +23,15 @@ export async function exportPdf(pages: CatalogPage[], name: string) {
   const { jsPDF } = await import("jspdf");
   const first = pages[0]!;
   const pdf = new jsPDF({ unit: "px", format: [first.width, first.height], orientation: first.width > first.height ? "l" : "p" });
-  pages.forEach((p, i) => {
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]!;
     if (i > 0) pdf.addPage([p.width, p.height], p.width > p.height ? "l" : "p");
-    pdf.addImage(p.image, "JPEG", 0, 0, p.width, p.height);
-  });
+    let img = p.image;
+    if (!img.startsWith("data:")) {
+      const blob = await (await fetch(img)).blob();
+      img = await new Promise<string>((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result as string); fr.readAsDataURL(blob); });
+    }
+    pdf.addImage(img, "JPEG", 0, 0, p.width, p.height);
+  }
   pdf.save(`${name}.pdf`);
 }
