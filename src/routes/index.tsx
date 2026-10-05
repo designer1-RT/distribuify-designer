@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2 } from "lucide-react";
+import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2, Plus, Save, Grid3x3 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
-import { exportPdf, pdfToPages, type CatalogPage } from "@/lib/pdf";
+import { ProductGrid } from "@/components/ProductGrid";
+import { countLost, exportPdf, imageToPage, pdfToPages, resizeGrid, type CatalogPage, type Grid, type Product } from "@/lib/pdf";
 import { supabase } from "@/integrations/supabase/client";
-import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog, shareCatalog } from "@/lib/cloud";
+import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog, shareCatalog, updateCatalogPages } from "@/lib/cloud";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -21,6 +22,10 @@ export const Route = createFileRoute("/")({
 
 type View = "dashboard" | "editor" | "pages";
 type Saved = { id: string; name: string; count: number; updated_at: string };
+
+const GRID_PRESETS: Grid[] = [{ cols: 2, rows: 3 }, { cols: 3, rows: 3 }, { cols: 3, rows: 4 }, { cols: 4, rows: 4 }, { cols: 4, rows: 5 }];
+const SIZES = [1, 2, 3, 4, 5, 6, 7, 8];
+const pageBox = { containerType: "inline-size" } as const;
 
 function App() {
   const navigate = useNavigate();
@@ -53,6 +58,19 @@ function App() {
     } catch { toast.error("Não foi possível ler este arquivo"); }
     setLoading(null);
   }
+  function setGrid(i: number, grid: Grid | undefined) {
+    const lost = countLost(pages[i]!, grid);
+    if (lost > 0 && !confirm(`${lost} produto(s) ficarão fora da nova grade e serão removidos. Continuar?`)) return;
+    setPages((ps) => ps.map((p, j) => (j === i ? resizeGrid(p, grid) : p))); setDirty(true);
+  }
+  function gridForAll(grid: Grid) {
+    const lost = pages.reduce((n, p) => n + countLost(p, grid), 0);
+    if (!confirm(`Aplicar a grade ${grid.cols}×${grid.rows} em todas as ${pages.length} páginas?${lost > 0 ? ` ${lost} produto(s) ficarão fora e serão removidos.` : ""}`)) return;
+    setPages((ps) => ps.map((p) => resizeGrid(p, grid))); setDirty(true);
+  }
+  function setCells(i: number, cells: (Product | null)[]) {
+    setPages((ps) => ps.map((p, j) => (j === i ? { ...p, cells } : p))); setDirty(true);
+  }
   async function savePages() {
     if (!email || !catalogId) { toast("Entre na sua conta e abra um catálogo salvo para salvar"); return; }
     setLoading("Salvando…");
@@ -65,6 +83,7 @@ function App() {
     if (!email) { toast("Entre na sua conta para gerar o link"); return; }
     if (!catalogId) { toast("Aguarde o catálogo ser salvo na nuvem"); return; }
     try {
+      if (dirty) { await updateCatalogPages(catalogId, pages); setDirty(false); }
       await shareCatalog(catalogId);
       const url = `${window.location.origin}/c/${catalogId}`;
       await navigator.clipboard.writeText(url).catch(() => {});
@@ -100,7 +119,7 @@ function App() {
     try {
       const p = await pdfToPages(f, (n, t) => setLoading(`Preparando página ${n} de ${t}…`));
       const nm = f.name.replace(/\.pdf$/i, "");
-      setPages(p); setName(nm); setCatalogId(null); setCurrent(1); setView("editor");
+      setPages(p); setName(nm); setCatalogId(null); setCurrent(1); setDirty(false); setView("editor");
       toast.success(`${p.length} páginas carregadas`);
       if (email) {
         setCatalogId(await saveCatalog(nm, p, (n, t) => setLoading(`Salvando na nuvem ${n} de ${t}…`)));
@@ -115,7 +134,7 @@ function App() {
     setLoading("Abrindo catálogo…");
     try {
       const c = await loadCatalog(id);
-      setPages(c.pages); setName(c.name); setCatalogId(id); setCurrent(1); setView("editor");
+      setPages(c.pages); setName(c.name); setCatalogId(id); setCurrent(1); setDirty(false); setView("editor");
     } catch { toast.error("Não foi possível abrir"); }
     setLoading(null);
   }
@@ -245,7 +264,10 @@ function App() {
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => movePage(i)}
                   className={`group relative cursor-grab text-center ${dragIdx === i ? "opacity-40" : ""}`}>
-                  <img src={p.image} alt={`Página ${i + 1}`} draggable={false} className="w-full rounded bg-page shadow-md ring-primary group-hover:ring-2" />
+                  <div className="relative" style={pageBox}>
+                    <img src={p.image} alt={`Página ${i + 1}`} draggable={false} className="w-full rounded bg-page shadow-md ring-primary group-hover:ring-2" />
+                    <ProductGrid page={p} />
+                  </div>
                   <button title="Remover página" onClick={() => removePage(i)}
                     className="absolute right-2 top-2 hidden h-8 w-8 items-center justify-center rounded-md bg-popover text-foreground shadow group-hover:flex hover:text-primary">
                     <Trash2 className="h-4 w-4" />
@@ -259,7 +281,38 @@ function App() {
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-auto bg-canvas py-8">
             <div className="mx-auto flex flex-col items-center gap-6" style={{ width: `${zoom * 720}px` }}>
               {pages.map((p, i) => (
-                <img key={p.id} data-page src={p.image} alt={`Página ${i + 1}`} className="w-full bg-page shadow-xl" />
+                <div key={p.id} data-page className="w-full">
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">Página {i + 1}</span>
+                    <Grid3x3 className="ml-2 h-4 w-4" />
+                    {p.grid ? (
+                      <>
+                        <select title="Colunas" value={p.grid.cols} onChange={(e) => setGrid(i, { ...p.grid!, cols: +e.target.value })} className="rounded-md border bg-background px-1.5 py-1">
+                          {SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                        <span>×</span>
+                        <select title="Linhas" value={p.grid.rows} onChange={(e) => setGrid(i, { ...p.grid!, rows: +e.target.value })} className="rounded-md border bg-background px-1.5 py-1">
+                          {SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                        <span className="text-xs">(colunas × linhas)</span>
+                        <div className="flex-1" />
+                        <button onClick={() => gridForAll(p.grid!)} className="rounded-md px-2 py-1 hover:bg-secondary hover:text-foreground">Usar em todas</button>
+                        <button onClick={() => setGrid(i, undefined)} className="rounded-md px-2 py-1 hover:bg-secondary hover:text-foreground">Remover grade</button>
+                      </>
+                    ) : (
+                      <>
+                        <span>Montar grade:</span>
+                        {GRID_PRESETS.map((g) => (
+                          <button key={`${g.cols}x${g.rows}`} onClick={() => setGrid(i, g)} className="rounded-md border px-2 py-0.5 tabular-nums hover:border-primary hover:text-foreground">{g.cols}×{g.rows}</button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                  <div className="relative bg-page shadow-xl" style={pageBox}>
+                    <img src={p.image} alt={`Página ${i + 1}`} className="w-full" />
+                    <ProductGrid page={p} editable onChange={(cells) => setCells(i, cells)} />
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -278,6 +331,10 @@ function App() {
               <button className={railBtn} title="Afastar" onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}><ZoomOut className="h-5 w-5" /></button>
             </div>
             <div className="my-1 h-px w-8 bg-border" />
+            <button className={`${railBtn} relative`} title={dirty ? "Salvar alterações" : "Tudo salvo"} onClick={savePages} disabled={!dirty || !!loading}>
+              <Save className="h-5 w-5" />
+              {dirty && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" />}
+            </button>
             <button data-tour="tool-share" className={railBtn} title="Enviar link" onClick={share}><Link2 className="h-5 w-5" /></button>
             <button data-tour="tool-export" className={railBtn} title="Exportar PDF" onClick={() => exportPdf(pages, name)}><FileDown className="h-5 w-5" /></button>
           </div>
