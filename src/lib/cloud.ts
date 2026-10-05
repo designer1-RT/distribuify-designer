@@ -2,7 +2,9 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CatalogPage } from "./pdf";
 
 const BUCKET = "catalog-pages";
-type StoredPage = { id: string; path: string; width: number; height: number };
+type StoredPage = { id: string; path: string; width: number; height: number; grid?: CatalogPage["grid"]; cells?: CatalogPage["cells"] };
+
+const toStored = (p: CatalogPage, path: string): StoredPage => ({ id: p.id, path, width: p.width, height: p.height, grid: p.grid, cells: p.cells });
 
 export async function saveCatalog(name: string, pages: CatalogPage[], onProgress?: (n: number, t: number) => void) {
   const { data: u } = await supabase.auth.getUser();
@@ -15,7 +17,7 @@ export async function saveCatalog(name: string, pages: CatalogPage[], onProgress
     const path = `${u.user.id}/${catalogId}/${p.id}.jpg`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg" });
     if (error) throw error;
-    stored.push({ id: p.id, path, width: p.width, height: p.height });
+    stored.push(toStored(p, path));
     onProgress?.(i + 1, pages.length);
   }
   const { error } = await supabase.from("catalogs").insert({ id: catalogId, name, pages: stored });
@@ -36,7 +38,7 @@ export async function loadCatalog(id: string) {
   if (!stored.length) return { name: data.name, pages: [] as CatalogPage[] };
   const { data: urls, error: e2 } = await supabase.storage.from(BUCKET).createSignedUrls(stored.map((s) => s.path), 60 * 60 * 24);
   if (e2) throw e2;
-  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl ?? "", width: s.width, height: s.height }));
+  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl ?? "", width: s.width, height: s.height, grid: s.grid, cells: s.cells }));
   return { name: data.name, pages };
 }
 
@@ -64,7 +66,7 @@ export async function updateCatalogPages(id: string, pages: CatalogPage[]) {
       const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg" });
       if (error) throw error;
     }
-    stored.push({ id: p.id, path, width: p.width, height: p.height });
+    stored.push(toStored(p, path));
   }
   const { error } = await supabase.from("catalogs").update({ pages: stored, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
