@@ -5,7 +5,7 @@ import { Toaster, toast } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
 import { exportPdf, pdfToPages, type CatalogPage } from "@/lib/pdf";
 import { supabase } from "@/integrations/supabase/client";
-import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog } from "@/lib/cloud";
+import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog, shareCatalog } from "@/lib/cloud";
 
 export const Route = createFileRoute("/")({
   head: () => ({
