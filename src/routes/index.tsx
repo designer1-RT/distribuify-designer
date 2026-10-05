@@ -127,7 +127,9 @@ function App() {
         <button data-tour="nav-theme" title="Modo claro/escuro" onClick={() => setDark(!dark)} className={railBtn}>
           {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
-        <button data-tour="nav-login" title="Entrar / Sair" onClick={() => toast("Login chega na próxima etapa")} className={railBtn}><LogIn className="h-5 w-5" /></button>
+        <button data-tour="nav-login" title={email ? `Sair (${email})` : "Entrar"} onClick={onLogin} className={railBtn}>
+          {email ? <LogOut className="h-5 w-5" /> : <LogIn className="h-5 w-5" />}
+        </button>
         <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-lg font-extrabold text-primary-foreground">P</div>
       </aside>
 
@@ -152,6 +154,28 @@ function App() {
                   {pages.length > 0 && <button onClick={() => setView("editor")} className="mt-4 rounded-full bg-primary-foreground/20 px-5 py-2 text-sm font-bold">Abrir catálogo</button>}
                 </div>
               </div>
+            </section>
+            <section className="mx-auto mt-8 max-w-4xl">
+              <h2 className="text-lg font-bold">Meus catálogos na nuvem</h2>
+              {!email ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  <button onClick={() => navigate({ to: "/auth" })} className="font-semibold text-primary hover:underline">Entre na sua conta</button> para salvar e ver seus catálogos.
+                </p>
+              ) : saved.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Nenhum catálogo salvo ainda. Envie um PDF acima.</p>
+              ) : (
+                <ul className="mt-3 divide-y rounded-xl border">
+                  {saved.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between p-4">
+                      <button onClick={() => openSaved(c.id)} className="text-left">
+                        <p className="font-semibold">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.count} páginas · {new Date(c.updated_at).toLocaleDateString("pt-BR")}</p>
+                      </button>
+                      <button title="Excluir" onClick={() => removeSaved(c.id)} className={railBtn}><Trash2 className="h-4 w-4" /></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           </div>
         ) : view === "pages" ? (
