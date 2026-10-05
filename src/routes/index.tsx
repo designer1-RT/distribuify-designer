@@ -29,6 +29,37 @@ function App() {
   const [pages, setPages] = useState<CatalogPage[]>([]);
   const [name, setName] = useState("catalogo");
   const [catalogId, setCatalogId] = useState<string | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const addRef = useRef<HTMLInputElement>(null);
+
+  function movePage(to: number) {
+    if (dragIdx === null || dragIdx === to) { setDragIdx(null); return; }
+    setPages((ps) => { const n = [...ps]; const [m] = n.splice(dragIdx, 1); n.splice(to, 0, m!); return n; });
+    setDragIdx(null); setDirty(true);
+  }
+  function removePage(i: number) {
+    if (pages.length <= 1) { toast("O catálogo precisa ter pelo menos uma página"); return; }
+    if (!confirm(`Remover a página ${i + 1}?`)) return;
+    setPages((ps) => ps.filter((_, j) => j !== i)); setDirty(true);
+  }
+  async function addPages(f?: File) {
+    if (!f) return;
+    setLoading("Lendo arquivo…");
+    try {
+      const add = f.type === "application/pdf" ? await pdfToPages(f, (n, t) => setLoading(`Página ${n} de ${t}…`)) : [await imageToPage(f)];
+      setPages((ps) => [...ps, ...add]); setDirty(true);
+      toast.success(`${add.length} página(s) adicionada(s) no final`);
+    } catch { toast.error("Não foi possível ler este arquivo"); }
+    setLoading(null);
+  }
+  async function savePages() {
+    if (!email || !catalogId) { toast("Entre na sua conta e abra um catálogo salvo para salvar"); return; }
+    setLoading("Salvando…");
+    try { await updateCatalogPages(catalogId, pages); setDirty(false); toast.success("Alterações salvas"); }
+    catch { toast.error("Erro ao salvar"); }
+    setLoading(null);
+  }
 
   async function share() {
     if (!email) { toast("Entre na sua conta para gerar o link"); return; }
@@ -192,16 +223,37 @@ function App() {
           </div>
         ) : view === "pages" ? (
           <div className="flex-1 overflow-auto bg-canvas p-8">
-            <h2 className="mb-6 text-xl font-bold">Organizar páginas</h2>
+            <input ref={addRef} type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { addPages(e.target.files?.[0]); e.target.value = ""; }} />
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold">Organizar páginas</h2>
+                <p className="text-sm text-muted-foreground">Arraste as páginas para mudar a ordem.</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => addRef.current?.click()} disabled={!!loading} className="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-semibold">
+                  <Plus className="h-4 w-4" /> {loading ?? "Adicionar páginas"}
+                </button>
+                <button onClick={savePages} disabled={!dirty || !!loading} className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                  {dirty ? "Salvar alterações" : "Tudo salvo"}
+                </button>
+              </div>
+            </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-6">
               {pages.map((p, i) => (
-                <div key={p.id} className="text-center">
-                  <img src={p.image} alt={`Página ${i + 1}`} className="w-full rounded bg-page shadow-md" />
+                <div key={p.id} draggable
+                  onDragStart={() => setDragIdx(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => movePage(i)}
+                  className={`group relative cursor-grab text-center ${dragIdx === i ? "opacity-40" : ""}`}>
+                  <img src={p.image} alt={`Página ${i + 1}`} draggable={false} className="w-full rounded bg-page shadow-md ring-primary group-hover:ring-2" />
+                  <button title="Remover página" onClick={() => removePage(i)}
+                    className="absolute right-2 top-2 hidden h-8 w-8 items-center justify-center rounded-md bg-popover text-foreground shadow group-hover:flex hover:text-primary">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                   <p className="mt-2 text-sm text-muted-foreground">{i + 1}</p>
                 </div>
               ))}
             </div>
-            <p className="mt-8 text-sm text-muted-foreground">Arrastar, adicionar e remover páginas chegam na próxima etapa.</p>
           </div>
         ) : (
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-auto bg-canvas py-8">
