@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { FileDown } from "lucide-react";
+import { ProductGrid } from "@/components/ProductGrid";
 import { loadCatalog } from "@/lib/cloud";
 import { exportPdf, type CatalogPage } from "@/lib/pdf";
 
@@ -45,7 +46,12 @@ function Viewer() {
         <p className="p-10 text-center text-muted-foreground">Carregando catálogo…</p>
       ) : (
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">
-          {data.pages.map((p, i) => <img key={p.id} src={p.image} alt={`Página ${i + 1}`} className="w-full bg-page shadow-xl" />)}
+          {data.pages.map((p, i) => (
+            <div key={p.id} className="relative bg-page shadow-xl" style={{ containerType: "inline-size" }}>
+              <img src={p.image} alt={`Página ${i + 1}`} className="w-full" />
+              <ProductGrid page={p} />
+            </div>
+          ))}
         </div>
       )}
     </div>
