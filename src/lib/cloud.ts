@@ -36,7 +36,7 @@ export async function loadCatalog(id: string) {
   if (!stored.length) return { name: data.name, pages: [] as CatalogPage[] };
   const { data: urls, error: e2 } = await supabase.storage.from(BUCKET).createSignedUrls(stored.map((s) => s.path), 60 * 60 * 24);
   if (e2) throw e2;
-  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl, width: s.width, height: s.height }));
+  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl ?? "", width: s.width, height: s.height }));
   return { name: data.name, pages };
 }
 
