@@ -15,7 +15,7 @@ export const STEPS = [
 export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const step = STEPS[i];
+  const step = STEPS[i]!;
 
   useEffect(() => { if (open) setI(0); }, [open]);
   useEffect(() => {

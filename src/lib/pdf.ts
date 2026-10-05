@@ -21,7 +21,7 @@ export async function pdfToPages(file: File, onProgress?: (n: number, total: num
 
 export async function exportPdf(pages: CatalogPage[], name: string) {
   const { jsPDF } = await import("jspdf");
-  const first = pages[0];
+  const first = pages[0]!;
   const pdf = new jsPDF({ unit: "px", format: [first.width, first.height], orientation: first.width > first.height ? "l" : "p" });
   pages.forEach((p, i) => {
     if (i > 0) pdf.addPage([p.width, p.height], p.width > p.height ? "l" : "p");
