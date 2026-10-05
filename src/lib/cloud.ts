@@ -52,3 +52,20 @@ export async function shareCatalog(id: string) {
   const { error } = await supabase.from("catalogs").update({ shared: true }).eq("id", id);
   if (error) throw error;
 }
+
+export async function updateCatalogPages(id: string, pages: CatalogPage[]) {
+  const { data: u } = await supabase.auth.getUser();
+  if (!u.user) throw new Error("not signed in");
+  const stored: StoredPage[] = [];
+  for (const p of pages) {
+    const path = `${u.user.id}/${id}/${p.id}.jpg`;
+    if (p.image.startsWith("data:")) {
+      const blob = await (await fetch(p.image)).blob();
+      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (error) throw error;
+    }
+    stored.push({ id: p.id, path, width: p.width, height: p.height });
+  }
+  const { error } = await supabase.from("catalogs").update({ pages: stored, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw error;
+}

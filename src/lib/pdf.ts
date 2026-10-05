@@ -35,3 +35,14 @@ export async function exportPdf(pages: CatalogPage[], name: string) {
   }
   pdf.save(`${name}.pdf`);
 }
+
+export async function imageToPage(file: File): Promise<CatalogPage> {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((r, j) => { img.onload = r; img.onerror = j; img.src = url; });
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext("2d")!.drawImage(img, 0, 0);
+  URL.revokeObjectURL(url);
+  return { id: crypto.randomUUID(), image: c.toDataURL("image/jpeg", 0.85), width: c.width, height: c.height };
+}
