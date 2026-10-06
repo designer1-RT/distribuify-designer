@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 export const STEPS = [
   { target: "nav-dashboard", title: "Painel", text: "Comece aqui: envie seu catálogo em PDF e veja seus arquivos." },
-  { target: "nav-editor", title: "Editar produtos", text: "Edite código, nome e quantidade dos produtos e troque o layout da página." },
+  { target: "nav-editor", title: "Editar produtos", text: "Confira os produtos que mapeamos em cada página: código, nome, quantidade e foto. Os destacados em amarelo precisam de revisão." },
   { target: "nav-pages", title: "Organizar páginas", text: "Reordene, adicione ou remova páginas do catálogo." },
   { target: "nav-theme", title: "Modo claro / escuro", text: "Alterne a aparência da plataforma." },
   { target: "nav-login", title: "Entrar / Sair", text: "Acesse sua conta da distribuidora." },

@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { FileDown } from "lucide-react";
-import { ProductGrid } from "@/components/ProductGrid";
 import { loadCatalog } from "@/lib/cloud";
 import { exportPdf, type CatalogPage } from "@/lib/pdf";
 
@@ -49,7 +48,6 @@ function Viewer() {
           {data.pages.map((p, i) => (
             <div key={p.id} className="relative bg-page shadow-xl" style={{ containerType: "inline-size" }}>
               <img src={p.image} alt={`Página ${i + 1}`} className="w-full" />
-              <ProductGrid page={p} />
             </div>
           ))}
         </div>

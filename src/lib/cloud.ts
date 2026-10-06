@@ -1,10 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { CatalogPage } from "./pdf";
+import { countProducts, type CatalogPage } from "./pdf";
 
 const BUCKET = "catalog-pages";
-type StoredPage = { id: string; path: string; width: number; height: number; grid?: CatalogPage["grid"]; cells?: CatalogPage["cells"] };
+type StoredPage = { id: string; path: string; width: number; height: number; products?: CatalogPage["products"]; mapped?: boolean | undefined };
 
-const toStored = (p: CatalogPage, path: string): StoredPage => ({ id: p.id, path, width: p.width, height: p.height, grid: p.grid, cells: p.cells });
+const toStored = (p: CatalogPage, path: string): StoredPage => ({ id: p.id, path, width: p.width, height: p.height, products: p.products, mapped: p.mapped });
 
 export async function saveCatalog(name: string, pages: CatalogPage[], onProgress?: (n: number, t: number) => void) {
   const { data: u } = await supabase.auth.getUser();
@@ -28,7 +28,10 @@ export async function saveCatalog(name: string, pages: CatalogPage[], onProgress
 export async function listCatalogs() {
   const { data, error } = await supabase.from("catalogs").select("id, name, pages, updated_at").order("updated_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((c) => ({ id: c.id, name: c.name, count: (c.pages as unknown as StoredPage[]).length, updated_at: c.updated_at }));
+  return (data ?? []).map((c) => {
+    const pages = c.pages as unknown as StoredPage[];
+    return { id: c.id, name: c.name, count: pages.length, ...countProducts(pages), updated_at: c.updated_at };
+  });
 }
 
 export async function loadCatalog(id: string) {
@@ -38,7 +41,7 @@ export async function loadCatalog(id: string) {
   if (!stored.length) return { name: data.name, pages: [] as CatalogPage[] };
   const { data: urls, error: e2 } = await supabase.storage.from(BUCKET).createSignedUrls(stored.map((s) => s.path), 60 * 60 * 24);
   if (e2) throw e2;
-  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl ?? "", width: s.width, height: s.height, grid: s.grid, cells: s.cells }));
+  const pages: CatalogPage[] = stored.map((s, i) => ({ id: s.id, image: urls![i]!.signedUrl ?? "", width: s.width, height: s.height, products: s.products, mapped: s.mapped }));
   return { name: data.name, pages };
 }
 
