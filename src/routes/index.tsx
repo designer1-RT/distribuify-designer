@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2, Plus, Save, Grid3x3 } from "lucide-react";
+import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2, Plus, Save, RefreshCw, ScanSearch } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
-import { ProductGrid } from "@/components/ProductGrid";
-import { countLost, exportPdf, imageToPage, pdfToPages, resizeGrid, type CatalogPage, type Grid, type Product } from "@/lib/pdf";
+import { ProductOverlay } from "@/components/ProductOverlay";
+import { countProducts, exportPdf, imageToPage, pdfToPages, type CatalogPage } from "@/lib/pdf";
+import { mapPages } from "@/lib/ocr";
 import { supabase } from "@/integrations/supabase/client";
 import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog, shareCatalog, updateCatalogPages } from "@/lib/cloud";
 
@@ -21,10 +22,9 @@ export const Route = createFileRoute("/")({
 });
 
 type View = "dashboard" | "editor" | "pages";
-type Saved = { id: string; name: string; count: number; updated_at: string };
+type Saved = { id: string; name: string; count: number; products: number; productPages: number; updated_at: string };
 
-const GRID_PRESETS: Grid[] = [{ cols: 2, rows: 3 }, { cols: 3, rows: 3 }, { cols: 3, rows: 4 }, { cols: 4, rows: 4 }, { cols: 4, rows: 5 }];
-const SIZES = [1, 2, 3, 4, 5, 6, 7, 8];
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const pageBox = { containerType: "inline-size" } as const;
 
 function App() {
@@ -52,29 +52,53 @@ function App() {
     if (!f) return;
     setLoading("Lendo arquivo…");
     try {
-      const add = f.type === "application/pdf" ? await pdfToPages(f, (n, t) => setLoading(`Página ${n} de ${t}…`)) : [await imageToPage(f)];
+      const read = f.type === "application/pdf" ? await pdfToPages(f, (n, t) => setLoading(`Página ${n} de ${t}…`)) : [await imageToPage(f)];
+      const add = await withProducts(read);
       setPages((ps) => [...ps, ...add]); setDirty(true);
       toast.success(`${add.length} página(s) adicionada(s) no final`);
     } catch { toast.error("Não foi possível ler este arquivo"); }
     setLoading(null);
   }
-  function setGrid(i: number, grid: Grid | undefined) {
-    const lost = countLost(pages[i]!, grid);
-    if (lost > 0 && !confirm(`${lost} produto(s) ficarão fora da nova grade e serão removidos. Continuar?`)) return;
-    setPages((ps) => ps.map((p, j) => (j === i ? resizeGrid(p, grid) : p))); setDirty(true);
+  // Reads every page with OCR and finds its products. If the OCR can't run, the pages are kept unmapped.
+  async function withProducts(ps: CatalogPage[]): Promise<CatalogPage[]> {
+    try {
+      const found = await mapPages(ps.map((p) => p.image), (n, t) => setLoading(`Mapeando produtos: página ${n} de ${t}…`));
+      const mapped = ps.map((p, i) => ({ ...p, products: found[i], mapped: true }));
+      const c = countProducts(mapped);
+      toast.success(`Mapeamos ${plural(c.products, "produto", "produtos")} em ${plural(c.productPages, "página", "páginas")}`,
+        c.review ? { description: `${plural(c.review, "produto precisa", "produtos precisam")} de revisão (destacados em amarelo).` } : undefined);
+      return mapped;
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível mapear os produtos agora. Tente \"Mapear novamente\" depois.");
+      return ps;
+    }
   }
-  function gridForAll(grid: Grid) {
-    const lost = pages.reduce((n, p) => n + countLost(p, grid), 0);
-    if (!confirm(`Aplicar a grade ${grid.cols}×${grid.rows} em todas as ${pages.length} páginas?${lost > 0 ? ` ${lost} produto(s) ficarão fora e serão removidos.` : ""}`)) return;
-    setPages((ps) => ps.map((p) => resizeGrid(p, grid))); setDirty(true);
+  async function remapPage(i: number) {
+    if (pages[i]!.products?.length && !confirm("Mapear esta página de novo? Os produtos dela serão substituídos.")) return;
+    setLoading(`Mapeando a página ${i + 1}…`);
+    try {
+      const [found] = await mapPages([pages[i]!.image]);
+      setPages((ps) => ps.map((p, j) => (j === i ? { ...p, products: found, mapped: true } : p))); setDirty(true);
+      toast.success(`Página ${i + 1}: ${plural(found!.length, "produto encontrado", "produtos encontrados")}`);
+    } catch { toast.error("Não foi possível mapear esta página"); }
+    setLoading(null);
   }
-  function setCells(i: number, cells: (Product | null)[]) {
-    setPages((ps) => ps.map((p, j) => (j === i ? { ...p, cells } : p))); setDirty(true);
+  async function mapCatalog() {
+    setLoading("Preparando o mapeamento…");
+    const mapped = await withProducts(pages);
+    setPages(mapped);
+    if (email && catalogId && mapped !== pages) {
+      setLoading("Salvando…");
+      try { await updateCatalogPages(catalogId, mapped); setDirty(false); setSaved(await listCatalogs()); }
+      catch { setDirty(true); toast.error("Erro ao salvar"); }
+    } else if (mapped !== pages) setDirty(true);
+    setLoading(null);
   }
   async function savePages() {
     if (!email || !catalogId) { toast("Entre na sua conta e abra um catálogo salvo para salvar"); return; }
     setLoading("Salvando…");
-    try { await updateCatalogPages(catalogId, pages); setDirty(false); toast.success("Alterações salvas"); }
+    try { await updateCatalogPages(catalogId, pages); setDirty(false); toast.success("Alterações salvas"); setSaved(await listCatalogs()); }
     catch { toast.error("Erro ao salvar"); }
     setLoading(null);
   }
@@ -94,6 +118,7 @@ function App() {
   const [current, setCurrent] = useState(1);
   const [loading, setLoading] = useState<string | null>(null);
   const [tour, setTour] = useState(false);
+  const [showProducts, setShowProducts] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
   const [saved, setSaved] = useState<Saved[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -117,10 +142,9 @@ function App() {
     if (!f) return;
     setLoading("Lendo PDF…");
     try {
-      const p = await pdfToPages(f, (n, t) => setLoading(`Preparando página ${n} de ${t}…`));
+      const p = await withProducts(await pdfToPages(f, (n, t) => setLoading(`Preparando página ${n} de ${t}…`)));
       const nm = f.name.replace(/\.pdf$/i, "");
       setPages(p); setName(nm); setCatalogId(null); setCurrent(1); setDirty(false); setView("editor");
-      toast.success(`${p.length} páginas carregadas`);
       if (email) {
         setCatalogId(await saveCatalog(nm, p, (n, t) => setLoading(`Salvando na nuvem ${n} de ${t}…`)));
         toast.success("Catálogo salvo na nuvem");
@@ -169,6 +193,7 @@ function App() {
     { id: "editor" as View, label: "Editar produtos", icon: PackageSearch, tour: "nav-editor" },
     { id: "pages" as View, label: "Organizar páginas", icon: Files, tour: "nav-pages" },
   ];
+  const stats = countProducts(pages);
   const railBtn = "flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground";
 
   return (
@@ -212,8 +237,22 @@ function App() {
                 </div>
                 <div className="rounded-xl bg-foreground/20 p-6">
                   <h2 className="font-semibold">Continuar editando</h2>
-                  <p className="mt-1 text-sm opacity-80">{pages.length ? `${name} · ${pages.length} páginas` : "Nenhum catálogo aberto ainda."}</p>
-                  {pages.length > 0 && <button onClick={() => setView("editor")} className="mt-4 rounded-full bg-primary-foreground/20 px-5 py-2 text-sm font-bold">Abrir catálogo</button>}
+                  <p className="mt-1 text-sm opacity-80">{pages.length ? `${name} · ${plural(pages.length, "página", "páginas")}` : "Nenhum catálogo aberto ainda."}</p>
+                  {pages.length > 0 && (
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                      <Stat value={stats.products} label="produtos" />
+                      <Stat value={stats.productPages} label="páginas com produtos" />
+                      <Stat value={stats.review} label="para revisar" />
+                    </div>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {pages.length > 0 && <button onClick={() => setView("editor")} className="rounded-full bg-primary-foreground/20 px-5 py-2 text-sm font-bold">Abrir catálogo</button>}
+                    {pages.some((p) => !p.mapped) && (
+                      <button onClick={mapCatalog} disabled={!!loading} className="inline-flex items-center gap-2 rounded-full bg-primary-foreground px-5 py-2 text-sm font-bold text-primary">
+                        <ScanSearch className="h-4 w-4" /> {loading ?? "Mapear produtos"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
@@ -231,7 +270,9 @@ function App() {
                     <li key={c.id} className="flex items-center justify-between p-4">
                       <button onClick={() => openSaved(c.id)} className="text-left">
                         <p className="font-semibold">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{c.count} páginas · {new Date(c.updated_at).toLocaleDateString("pt-BR")}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {plural(c.products, "produto", "produtos")} em {plural(c.productPages, "página", "páginas")} · {plural(c.count, "página", "páginas")} no total · {new Date(c.updated_at).toLocaleDateString("pt-BR")}
+                        </p>
                       </button>
                       <button title="Excluir" onClick={() => removeSaved(c.id)} className={railBtn}><Trash2 className="h-4 w-4" /></button>
                     </li>
@@ -266,13 +307,12 @@ function App() {
                   className={`group relative cursor-grab text-center ${dragIdx === i ? "opacity-40" : ""}`}>
                   <div className="relative" style={pageBox}>
                     <img src={p.image} alt={`Página ${i + 1}`} draggable={false} className="w-full rounded bg-page shadow-md ring-primary group-hover:ring-2" />
-                    <ProductGrid page={p} />
                   </div>
                   <button title="Remover página" onClick={() => removePage(i)}
                     className="absolute right-2 top-2 hidden h-8 w-8 items-center justify-center rounded-md bg-popover text-foreground shadow group-hover:flex hover:text-primary">
                     <Trash2 className="h-4 w-4" />
                   </button>
-                  <p className="mt-2 text-sm text-muted-foreground">{i + 1}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{i + 1}{p.products?.length ? ` · ${plural(p.products.length, "produto", "produtos")}` : ""}</p>
                 </div>
               ))}
             </div>
@@ -284,38 +324,25 @@ function App() {
                 <div key={p.id} data-page className="w-full">
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span className="font-semibold text-foreground">Página {i + 1}</span>
-                    <Grid3x3 className="ml-2 h-4 w-4" />
-                    {p.grid ? (
-                      <>
-                        <select title="Colunas" value={p.grid.cols} onChange={(e) => setGrid(i, { ...p.grid!, cols: +e.target.value })} className="rounded-md border bg-background px-1.5 py-1">
-                          {SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                        <span>×</span>
-                        <select title="Linhas" value={p.grid.rows} onChange={(e) => setGrid(i, { ...p.grid!, rows: +e.target.value })} className="rounded-md border bg-background px-1.5 py-1">
-                          {SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                        <span className="text-xs">(colunas × linhas)</span>
-                        <div className="flex-1" />
-                        <button onClick={() => gridForAll(p.grid!)} className="rounded-md px-2 py-1 hover:bg-secondary hover:text-foreground">Usar em todas</button>
-                        <button onClick={() => setGrid(i, undefined)} className="rounded-md px-2 py-1 hover:bg-secondary hover:text-foreground">Remover grade</button>
-                      </>
-                    ) : (
-                      <>
-                        <span>Montar grade:</span>
-                        {GRID_PRESETS.map((g) => (
-                          <button key={`${g.cols}x${g.rows}`} onClick={() => setGrid(i, g)} className="rounded-md border px-2 py-0.5 tabular-nums hover:border-primary hover:text-foreground">{g.cols}×{g.rows}</button>
-                        ))}
-                      </>
-                    )}
+                    {p.products?.length ? <span>· {plural(p.products.length, "produto", "produtos")}</span> : p.mapped ? <span>· sem produtos</span> : null}
+                    {p.products?.some((x) => x.doubtful) && <span className="text-amber-500">· {p.products.filter((x) => x.doubtful).length} para revisar</span>}
+                    <div className="flex-1" />
+                    <button onClick={() => remapPage(i)} disabled={!!loading} className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-secondary hover:text-foreground disabled:opacity-50">
+                      <RefreshCw className="h-3.5 w-3.5" /> Mapear novamente
+                    </button>
                   </div>
                   <div className="relative bg-page shadow-xl" style={pageBox}>
                     <img src={p.image} alt={`Página ${i + 1}`} className="w-full" />
-                    <ProductGrid page={p} editable onChange={(cells) => setCells(i, cells)} />
+                    {showProducts && <ProductOverlay page={p} />}
                   </div>
                 </div>
               ))}
             </div>
           </div>
+        )}
+
+        {loading && view !== "dashboard" && pages.length > 0 && (
+          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border bg-popover px-4 py-2 text-sm font-semibold shadow-lg">{loading}</div>
         )}
 
         {/* Floating toolbar */}
@@ -331,6 +358,9 @@ function App() {
               <button className={railBtn} title="Afastar" onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}><ZoomOut className="h-5 w-5" /></button>
             </div>
             <div className="my-1 h-px w-8 bg-border" />
+            <button className={`${railBtn} ${showProducts ? "text-primary" : ""}`} title={showProducts ? "Ocultar produtos mapeados" : "Mostrar produtos mapeados"} onClick={() => setShowProducts((v) => !v)}>
+              <ScanSearch className="h-5 w-5" />
+            </button>
             <button className={`${railBtn} relative`} title={dirty ? "Salvar alterações" : "Tudo salvo"} onClick={savePages} disabled={!dirty || !!loading}>
               <Save className="h-5 w-5" />
               {dirty && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" />}
@@ -342,6 +372,15 @@ function App() {
       </main>
 
       <Tutorial open={tour} onClose={closeTour} />
+    </div>
+  );
+}
+
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="rounded-lg bg-foreground/20 px-2 py-3">
+      <p className="text-2xl font-bold tabular-nums">{value}</p>
+      <p className="text-xs opacity-80">{label}</p>
     </div>
   );
 }
