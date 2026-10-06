@@ -5,7 +5,7 @@ export const STEPS = [
   { target: "nav-editor", title: "Editar produtos", text: "Confira os produtos que mapeamos em cada página: código, nome, quantidade e foto. Os destacados em amarelo precisam de revisão." },
   { target: "nav-pages", title: "Organizar páginas", text: "Reordene, adicione ou remova páginas do catálogo." },
   { target: "nav-theme", title: "Modo claro / escuro", text: "Alterne a aparência da plataforma." },
-  { target: "nav-login", title: "Entrar / Sair", text: "Acesse sua conta da distribuidora." },
+  { target: "nav-login", title: "Sair", text: "Encerra o acesso a plataforma neste aparelho." },
   { target: "tool-zoom", title: "Zoom e páginas", text: "Aproxime, afaste e veja em qual página você está." },
   { target: "tool-share", title: "Enviar link", text: "Copie um link do catálogo para enviar aos clientes." },
   { target: "tool-export", title: "Exportar PDF", text: "Baixe o catálogo atualizado em PDF." },
