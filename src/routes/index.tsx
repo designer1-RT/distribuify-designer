@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogIn, LogOut, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2, Plus, Save, RefreshCw, ScanSearch } from "lucide-react";
+import { LayoutDashboard, PackageSearch, Files, Moon, Sun, LogOut, KeyRound, HelpCircle, ZoomIn, ZoomOut, Link2, FileDown, Upload, ChevronUp, ChevronDown, Trash2, Plus, Save, RefreshCw, ScanSearch } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Tutorial } from "@/components/Tutorial";
 import { ProductOverlay } from "@/components/ProductOverlay";
@@ -8,6 +8,7 @@ import { countProducts, exportPdf, imageToPage, pdfToPages, type CatalogPage } f
 import { mapPages } from "@/lib/ocr";
 import { supabase } from "@/integrations/supabase/client";
 import { deleteCatalog, listCatalogs, loadCatalog, saveCatalog, shareCatalog, updateCatalogPages } from "@/lib/cloud";
+import { loginName } from "@/lib/access";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -127,8 +128,14 @@ function App() {
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => { if (!localStorage.getItem("tour-done")) setTour(true); }, []);
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email ?? null));
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) navigate({ to: "/auth" });
+      else setEmail(data.session.user.email ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setEmail(s?.user?.email ?? null);
+      if (!s) navigate({ to: "/auth" });
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
   useEffect(() => {
@@ -169,11 +176,18 @@ function App() {
     setSaved(await listCatalogs());
   }
 
-  async function onLogin() {
-    if (!email) return navigate({ to: "/auth" });
+  async function onLogout() {
     await supabase.auth.signOut();
-    setPages([]); setCatalogId(null); setView("dashboard");
-    toast("Você saiu da conta");
+  }
+
+  async function changeKey() {
+    const key = prompt("Nova chave de acesso (mínimo 6 caracteres):");
+    if (!key) return;
+    if (key.length < 6) { toast.error("A chave precisa ter pelo menos 6 caracteres"); return; }
+    if (prompt("Repita a nova chave de acesso:") !== key) { toast.error("As chaves não conferem"); return; }
+    const { error } = await supabase.auth.updateUser({ password: key });
+    if (error) toast.error("Não foi possível alterar a chave");
+    else toast.success("Chave de acesso alterada. Avise quem usa a plataforma.");
   }
 
   function onScroll() {
@@ -214,8 +228,9 @@ function App() {
         <button data-tour="nav-theme" title="Modo claro/escuro" onClick={() => setDark(!dark)} className={railBtn}>
           {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
-        <button data-tour="nav-login" title={email ? `Sair (${email})` : "Entrar"} onClick={onLogin} className={railBtn}>
-          {email ? <LogOut className="h-5 w-5" /> : <LogIn className="h-5 w-5" />}
+        <button title="Alterar chave de acesso" onClick={changeKey} className={railBtn}><KeyRound className="h-5 w-5" /></button>
+        <button data-tour="nav-login" title={email ? `Sair (${loginName(email)})` : "Sair"} onClick={onLogout} className={railBtn}>
+          <LogOut className="h-5 w-5" />
         </button>
         <div className="mt-2 flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-lg font-extrabold text-primary-foreground">P</div>
       </aside>
